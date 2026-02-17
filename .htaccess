@@ -1,6 +1,12 @@
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
-    # Arahkan semua request ke public
+    # If your hosting document root is NOT /public, route requests into /public safely.
+    RewriteCond %{REQUEST_URI} !^/public/
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
     RewriteRule ^(.*)$ public/$1 [L]
+
+    # Root request -> /public/
+    RewriteRule ^$ public/ [L]
 </IfModule>
