@@ -1,5 +1,9 @@
 @extends('layouts.app')
 
+@push('head')
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.css">
+@endpush
+
 @section('content')
     <div class="admin-title">
         <h2>Gallery Manager</h2>
@@ -14,7 +18,19 @@
 
             <div class="form-group">
                 <label>Image (up to 10MB upload, saved <= 1MB)</label>
-                <input type="file" name="image" required accept="image/*">
+                <input id="galleryImageInput" type="file" name="image" required accept="image/*">
+            </div>
+
+            <div id="imageEditorPanel" class="image-editor-panel" hidden>
+                <div class="image-editor-toolbar">
+                    <button class="btn btn-secondary btn-small" type="button" id="rotateLeftBtn">Rotate Left</button>
+                    <button class="btn btn-secondary btn-small" type="button" id="rotateRightBtn">Rotate Right</button>
+                    <button class="btn btn-secondary btn-small" type="button" id="resetCropBtn">Reset</button>
+                </div>
+                <p class="image-editor-hint">Drag on image to crop area, then upload.</p>
+                <div class="image-editor-canvas-wrap">
+                    <img id="galleryCropImage" alt="Image editor preview">
+                </div>
             </div>
 
             <div class="editor-actions">
@@ -60,3 +76,115 @@
         </nav>
     @endif
 @endsection
+
+@push('scripts')
+    <script src="https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.js"></script>
+    <script>
+        (function () {
+            const form = document.querySelector('form[action="{{ route('gallery.store') }}"]');
+            const fileInput = document.getElementById('galleryImageInput');
+            const editorPanel = document.getElementById('imageEditorPanel');
+            const image = document.getElementById('galleryCropImage');
+            const rotateLeftBtn = document.getElementById('rotateLeftBtn');
+            const rotateRightBtn = document.getElementById('rotateRightBtn');
+            const resetCropBtn = document.getElementById('resetCropBtn');
+
+            if (!form || !fileInput || !editorPanel || !image || typeof Cropper === 'undefined') return;
+
+            let cropper = null;
+            let blobUrl = null;
+            let isSubmittingEditedImage = false;
+
+            function destroyCropper() {
+                if (cropper) {
+                    cropper.destroy();
+                    cropper = null;
+                }
+                if (blobUrl) {
+                    URL.revokeObjectURL(blobUrl);
+                    blobUrl = null;
+                }
+            }
+
+            function initCropper(file) {
+                destroyCropper();
+                blobUrl = URL.createObjectURL(file);
+                image.src = blobUrl;
+                editorPanel.hidden = false;
+
+                image.onload = function () {
+                    cropper = new Cropper(image, {
+                        viewMode: 1,
+                        dragMode: 'move',
+                        autoCropArea: 1,
+                        responsive: true,
+                        background: false,
+                        checkOrientation: true
+                    });
+                };
+            }
+
+            fileInput.addEventListener('change', function () {
+                const file = fileInput.files && fileInput.files[0];
+                if (!file) {
+                    destroyCropper();
+                    editorPanel.hidden = true;
+                    return;
+                }
+                if (!file.type.startsWith('image/')) {
+                    destroyCropper();
+                    editorPanel.hidden = true;
+                    return;
+                }
+                initCropper(file);
+            });
+
+            rotateLeftBtn.addEventListener('click', function () {
+                if (cropper) cropper.rotate(-90);
+            });
+
+            rotateRightBtn.addEventListener('click', function () {
+                if (cropper) cropper.rotate(90);
+            });
+
+            resetCropBtn.addEventListener('click', function () {
+                if (cropper) cropper.reset();
+            });
+
+            form.addEventListener('submit', function (event) {
+                if (isSubmittingEditedImage || !cropper) return;
+                event.preventDefault();
+
+                const canvas = cropper.getCroppedCanvas({
+                    maxWidth: 2560,
+                    maxHeight: 2560,
+                    imageSmoothingEnabled: true,
+                    imageSmoothingQuality: 'high'
+                });
+
+                if (!canvas) {
+                    form.submit();
+                    return;
+                }
+
+                canvas.toBlob(function (blob) {
+                    if (!blob) {
+                        form.submit();
+                        return;
+                    }
+
+                    const original = fileInput.files && fileInput.files[0];
+                    const extension = 'jpg';
+                    const baseName = original && original.name ? original.name.replace(/\.[^.]+$/, '') : 'image';
+                    const editedFile = new File([blob], baseName + '-edited.' + extension, { type: 'image/jpeg' });
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.items.add(editedFile);
+                    fileInput.files = dataTransfer.files;
+
+                    isSubmittingEditedImage = true;
+                    form.submit();
+                }, 'image/jpeg', 0.9);
+            });
+        })();
+    </script>
+@endpush

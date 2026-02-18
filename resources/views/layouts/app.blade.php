@@ -6,6 +6,7 @@
     <title>Mai Journey</title>
     <link rel="stylesheet" href="{{ asset('css/style.css') }}">
     <link rel="stylesheet" href="{{ asset('css/admin.css') }}">
+    @stack('head')
 </head>
 <body>
     <header>
@@ -58,5 +59,6 @@
             })();
         </script>
     @endauth
+    @stack('scripts')
 </body>
 </html>

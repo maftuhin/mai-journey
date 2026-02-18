@@ -120,6 +120,8 @@ class GalleryController extends Controller
             throw new RuntimeException('Unsupported image format.');
         }
 
+        $source = $this->normalizeImageOrientation($source, $mime, $tmpPath);
+
         $bestData = null;
         $bestSize = PHP_INT_MAX;
         $extension = function_exists('imagewebp') ? 'webp' : 'jpg';
@@ -204,5 +206,33 @@ class GalleryController extends Controller
             UPLOAD_ERR_EXTENSION => 'Upload blocked by a server extension.',
             default => 'Upload failed. Please try again.',
         };
+    }
+
+    private function normalizeImageOrientation($image, string $mime, string $tmpPath)
+    {
+        if ($mime !== 'image/jpeg' || !function_exists('exif_read_data')) {
+            return $image;
+        }
+
+        $exif = @exif_read_data($tmpPath);
+        $orientation = (int) ($exif['Orientation'] ?? 1);
+
+        return match ($orientation) {
+            3 => $this->rotateImage($image, 180),
+            6 => $this->rotateImage($image, -90),
+            8 => $this->rotateImage($image, 90),
+            default => $image,
+        };
+    }
+
+    private function rotateImage($image, int $angle)
+    {
+        $rotated = @imagerotate($image, $angle, 0);
+        if (!$rotated) {
+            return $image;
+        }
+
+        imagedestroy($image);
+        return $rotated;
     }
 }

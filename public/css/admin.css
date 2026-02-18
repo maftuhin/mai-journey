@@ -530,6 +530,48 @@ body {
     border-top: 1px solid rgba(232, 160, 180, 0.1);
 }
 
+.image-editor-panel {
+    margin-top: 1rem;
+    border: 1px solid rgba(232, 160, 180, 0.2);
+    border-radius: 14px;
+    padding: 1rem;
+    background: rgba(253, 242, 244, 0.45);
+}
+
+.image-editor-toolbar {
+    display: flex;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.6rem;
+}
+
+.image-editor-hint {
+    color: var(--text-light);
+    font-size: 0.86rem;
+    margin-bottom: 0.85rem;
+}
+
+.image-editor-canvas-wrap {
+    width: 100%;
+    min-height: 260px;
+    max-height: 62vh;
+    background: repeating-linear-gradient(
+        45deg,
+        rgba(255, 255, 255, 0.8),
+        rgba(255, 255, 255, 0.8) 10px,
+        rgba(248, 244, 255, 0.85) 10px,
+        rgba(248, 244, 255, 0.85) 20px
+    );
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.image-editor-canvas-wrap img {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+}
+
 .gallery-admin-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -695,6 +737,11 @@ body {
 
     .editor-actions .btn {
         width: 100%;
+    }
+
+    .image-editor-canvas-wrap {
+        min-height: 210px;
+        max-height: 50vh;
     }
 
     .support-dialog-actions {
