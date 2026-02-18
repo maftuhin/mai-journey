@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\GalleryItem;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 use Throwable;
@@ -38,10 +39,19 @@ class GalleryController extends Controller
             'image' => ['required', 'file', 'image', 'max:10240'],
         ]);
 
+        $file = $request->file('image');
+        if (!$file instanceof UploadedFile || !$file->isValid()) {
+            $error = $file instanceof UploadedFile
+                ? $this->uploadErrorMessage($file->getError())
+                : 'No image file received.';
+            return response()->json(['message' => $error], 422);
+        }
+
         try {
-            $path = $this->compressAndStoreImage($request->file('image'));
+            $path = $this->compressAndStoreImage($file);
         } catch (Throwable $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
+            report($e);
+            return response()->json(['message' => $this->friendlyUploadError($e)], 422);
         }
 
         $item = GalleryItem::create([
@@ -62,11 +72,19 @@ class GalleryController extends Controller
         return response()->json(['message' => 'Gallery item deleted']);
     }
 
-    private function compressAndStoreImage($uploadedFile): string
+    private function compressAndStoreImage(UploadedFile $uploadedFile): string
     {
         $maxBytes = 1024 * 1024;
         $mime = $uploadedFile->getMimeType();
         $tmpPath = $uploadedFile->getRealPath();
+
+        if (!extension_loaded('gd')) {
+            throw new RuntimeException('Server image library (GD) is not enabled.');
+        }
+
+        if (!is_dir(public_path('uploads/gallery')) || !is_writable(public_path('uploads/gallery'))) {
+            throw new RuntimeException('Upload folder is not writable: public/uploads/gallery');
+        }
 
         if ($mime === 'image/gif') {
             if ($uploadedFile->getSize() > $maxBytes) {
@@ -121,8 +139,33 @@ class GalleryController extends Controller
         }
 
         $filename = 'gallery/' . bin2hex(random_bytes(16)) . '.' . $extension;
-        Storage::disk('uploads')->put($filename, $bestData);
+        if (!Storage::disk('uploads')->put($filename, $bestData)) {
+            throw new RuntimeException('Failed to save image file to uploads folder.');
+        }
 
         return $filename;
+    }
+
+    private function friendlyUploadError(Throwable $e): string
+    {
+        $message = trim($e->getMessage());
+        if ($message !== '') {
+            return $message;
+        }
+
+        return 'Upload failed due to a server error. Check server log for details.';
+    }
+
+    private function uploadErrorMessage(int $errorCode): string
+    {
+        return match ($errorCode) {
+            UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'Upload failed: file is larger than server upload limit.',
+            UPLOAD_ERR_PARTIAL => 'Upload failed: file was only partially uploaded.',
+            UPLOAD_ERR_NO_FILE => 'No image uploaded.',
+            UPLOAD_ERR_NO_TMP_DIR => 'Upload failed: temporary folder is missing on server.',
+            UPLOAD_ERR_CANT_WRITE => 'Upload failed: server cannot write uploaded file.',
+            UPLOAD_ERR_EXTENSION => 'Upload blocked by a server extension.',
+            default => 'Upload failed. Please try again.',
+        };
     }
 }
