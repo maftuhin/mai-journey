@@ -7,6 +7,7 @@ use App\Models\GalleryItem;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
 use RuntimeException;
 use Throwable;
 
@@ -34,10 +35,16 @@ class GalleryController extends Controller
 
     public function store(Request $request)
     {
+        $maxUploadKb = (int) config('gallery.max_upload_kb', 10240);
+
         $data = $request->validate([
             'caption' => ['required', 'string', 'max:500'],
-            'image' => ['required', 'file', 'image', 'max:10240'],
         ]);
+
+        $errorCode = (int) ($_FILES['image']['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($errorCode !== UPLOAD_ERR_OK) {
+            return response()->json(['message' => $this->uploadErrorMessage($errorCode)], 422);
+        }
 
         $file = $request->file('image');
         if (!$file instanceof UploadedFile || !$file->isValid()) {
@@ -45,6 +52,18 @@ class GalleryController extends Controller
                 ? $this->uploadErrorMessage($file->getError())
                 : 'No image file received.';
             return response()->json(['message' => $error], 422);
+        }
+
+        $validator = Validator::make(
+            ['image' => $file],
+            ['image' => ['required', 'file', 'image', "max:{$maxUploadKb}"]],
+            [
+                'image.image' => 'Image format is invalid. Use JPG, PNG, GIF, or WEBP.',
+                'image.max' => "Image is too large. Maximum upload is {$maxUploadKb}KB.",
+            ]
+        );
+        if ($validator->fails()) {
+            return response()->json(['message' => $validator->errors()->first('image')], 422);
         }
 
         try {
@@ -74,7 +93,7 @@ class GalleryController extends Controller
 
     private function compressAndStoreImage(UploadedFile $uploadedFile): string
     {
-        $maxBytes = 1024 * 1024;
+        $maxBytes = (int) config('gallery.max_saved_bytes', 1024 * 1024);
         $mime = $uploadedFile->getMimeType();
         $tmpPath = $uploadedFile->getRealPath();
 
@@ -107,28 +126,50 @@ class GalleryController extends Controller
         $bestData = null;
         $bestSize = PHP_INT_MAX;
         $extension = function_exists('imagewebp') ? 'webp' : 'jpg';
-
         $qualities = function_exists('imagewebp')
             ? [82, 74, 66, 58, 50, 45, 40]
             : [85, 76, 68, 60, 52, 45, 38];
+        $maxDimensions = [2560, 2048, 1600, 1280, 1080, 900, 768];
 
-        foreach ($qualities as $quality) {
-            ob_start();
-            if ($extension === 'webp') {
-                imagewebp($source, null, $quality);
-            } else {
-                imagejpeg($source, null, $quality);
+        foreach ($maxDimensions as $maxDimension) {
+            $working = $source;
+            $width = imagesx($source);
+            $height = imagesy($source);
+            $largest = max($width, $height);
+
+            if ($largest > $maxDimension) {
+                $ratio = $maxDimension / $largest;
+                $newWidth = max(1, (int) round($width * $ratio));
+                $newHeight = max(1, (int) round($height * $ratio));
+                $resized = imagecreatetruecolor($newWidth, $newHeight);
+                imagealphablending($resized, true);
+                imagesavealpha($resized, true);
+                imagecopyresampled($resized, $source, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+                $working = $resized;
             }
-            $data = ob_get_clean();
-            $size = strlen($data);
 
-            if ($size < $bestSize) {
-                $bestData = $data;
-                $bestSize = $size;
+            foreach ($qualities as $quality) {
+                ob_start();
+                if ($extension === 'webp') {
+                    imagewebp($working, null, $quality);
+                } else {
+                    imagejpeg($working, null, $quality);
+                }
+                $data = ob_get_clean();
+                $size = strlen($data);
+
+                if ($size < $bestSize) {
+                    $bestData = $data;
+                    $bestSize = $size;
+                }
+
+                if ($size <= $maxBytes) {
+                    break 2;
+                }
             }
 
-            if ($size <= $maxBytes) {
-                break;
+            if ($working !== $source) {
+                imagedestroy($working);
             }
         }
 
